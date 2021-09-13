@@ -1,6 +1,4 @@
 ﻿using System;
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -13,12 +11,21 @@ namespace Motorcycle
         [Header("Refs")] [SerializeField] private Rigidbody2D body;
         [SerializeField] private Rigidbody2D leftWheel;
         [SerializeField] private Rigidbody2D rightWheel;
-        [SerializeField] private InputActionReference moveAction;
 
-        private Transform camTransform;
-        private Vector3 camOffset; 
+        public float Distance { get; private set; }
+
+        public event Action onRestart;
+
+        private const float fallHeight = 6;
         
-        private float move;
+        private Transform camTransform;
+        private Vector3 camOffset;
+
+        private Vector3 spawnPos;
+        private Vector3 lastPos;
+        private int moveDir;
+
+        private readonly ContactPoint2D[] contacts = new ContactPoint2D[1];
 
         private void Start()
         {
@@ -26,33 +33,68 @@ namespace Motorcycle
             if (cam == null)
                 throw new Exception("No camera");
 
+            var position = transform.position;
+            spawnPos = position;
             camTransform = cam.transform;
-            camOffset = camTransform.position - transform.position;
-        }
-
-        private void OnEnable()
-        {
-            moveAction.action.performed += OnMoveAction;
+            camOffset = camTransform.position - position;
         }
 
         private void Update()
         {
-            camTransform.position = transform.position + camOffset;
+            var pos = transform.position;
+            camTransform.position = pos + camOffset;
+
+            Distance += (pos - lastPos).magnitude;
+            lastPos = pos;
+
+            if (pos.y < -fallHeight)
+                Restart();
         }
 
         private void FixedUpdate()
         {
-            var torque = -move * speed * Time.fixedDeltaTime;
+            var torque = -moveDir * speed * Time.fixedDeltaTime;
             leftWheel.AddTorque(torque);
             rightWheel.AddTorque(torque);
             
-            body.AddTorque(-move * carTorque * Time.fixedDeltaTime);
+            body.AddTorque(-moveDir * carTorque * Time.fixedDeltaTime);
         }
 
-        private void OnMoveAction(InputAction.CallbackContext ctx)
+        public void EnableMove(bool isRight)
         {
-            var axis = ctx.ReadValue<Vector2>();
-            move = axis.x;
+            moveDir = isRight ? 1 : -1;
+        }
+
+        public void DisableMove()
+        {
+            moveDir = 0;
+        }
+
+        public bool IsLeftContactRightNot()
+        {
+            return leftWheel.GetContacts(contacts) > 0 && rightWheel.GetContacts(contacts) == 0;
+        }
+
+        private void OnCollisionEnter2D(Collision2D other)
+        {
+            Restart();
+        }
+
+        private void Restart()
+        {
+            Debug.Log("Restart");
+            var trans = this.transform;
+            trans.position = spawnPos;
+            trans.rotation = Quaternion.identity;
+
+            leftWheel.Reset();
+            rightWheel.Reset();
+            body.Reset();
+            
+            Distance = 0;
+            lastPos = spawnPos;
+
+            onRestart?.Invoke();
         }
     }
 }
